@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-import mosquitto
-import json
 import argparse
 import Image
 from StringIO import StringIO
@@ -9,6 +7,7 @@ import wx
 import threading
 import urllib2
 from motionless import LatLonMarker, DecoratedMap
+import locationlistener
 
 class MapFrame(wx.Frame):
     def __init__(self):
@@ -53,19 +52,11 @@ class UIThread(threading.Thread):
         self._map.newFrame(frame)
         self._app.WakeUpIdle()
 
-markers = {}
-
-def on_message(mosq, obj, msg):
-    data = json.loads(msg.payload)
-    markers[msg.topic] = LatLonMarker(data['lat'], data['lon'])
-    dmap = DecoratedMap(size_x=320, size_y=240)
-    for m in markers.keys():
-        dmap.add_marker(markers[m])
-    url = dmap.generate_url()
+def on_update(url):
     img_file = urllib2.urlopen(url)
     imgdata = img_file.read()
     img = Image.open(StringIO(imgdata))
-    ui.newFrame(img)
+    gui.newFrame(img)
 
 parser = argparse.ArgumentParser(description='Displays MQTTitude on a map')
 parser.add_argument('-u', '--username', help='Username for the MQTT server')
@@ -75,10 +66,10 @@ parser.add_argument('-H', '--host', default='127.0.0.1', help='The hostname of t
 parser.add_argument('-p', '--port', default=1883, type=int, help='The port of the MQTT server')
 args = vars(parser.parse_args())
 
-ui = UIThread()
-ui.start()
+gui = UIThread()
+gui.start()
 
-client = mosquitto.Mosquitto("stalkitude")
+client = locationlistener.LocationListener()
 
 if args['cafile'] is not None:
     client.tls_set(args['cafile'])
@@ -87,13 +78,13 @@ if args['username'] is not None:
     client.username_pw_set(args['username'], args['password'])
 client.connect(args['host'], port=args['port'])
 
-client.on_message = on_message
+client.on_update = on_update
 
-while not ui._started:
+while not gui._started:
     pass
 
 client.subscribe("mqttitude/+/+", 0)
 
-while ui._app.IsMainLoopRunning():
+while gui._app.IsMainLoopRunning():
   client.loop()
 
